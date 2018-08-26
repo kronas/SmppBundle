@@ -19,6 +19,7 @@ class SmppTransmitter
     private $password;
     private $signature;
     private $debug;
+    private $nullTerminate;
 
     /** @var TransportInterface */
     private $transport;
@@ -32,32 +33,51 @@ class SmppTransmitter
      * @param string $signature
      * @param array  $debug
      */
-    public function __construct(array $transportParamters, $login, $password, $signature, array $debug)
+    public function __construct(array $transportParamters, $login, $password, $signature, array $debug, $nullTerminate)
     {
         $this->transportParamters = $transportParamters;
         $this->login = $login;
         $this->password = $password;
         $this->signature = $signature;
         $this->debug = $debug;
+        $this->nullTerminate = $nullTerminate;
     }
 
     /**
      * @param string $to
      * @param string $message
+     * @param null|string $from
+     * @param bool $returnStatus
      *
-     * @return string|void`
+     * @return string|array|void
      */
-    public function send($to, $message)
+    public function send($to, $message, $from = null, $returnStatus = false)
     {
         $message = GsmEncoder::utf8_to_gsm0338($message);
-        $from = new SmppAddress($this->signature, SMPP::TON_ALPHANUMERIC);
+        if ($from === null)
+        {
+            $from = $this->signature;
+        }
+
+        if (is_numeric($from))
+        {
+            $from = new SmppAddress(intval($from), SMPP::TON_INTERNATIONAL, SMPP::NPI_E164);
+        }
+        else
+        {
+            $from = new SmppAddress($from, SMPP::TON_ALPHANUMERIC);
+        }
         $to = new SmppAddress(intval($to), SMPP::TON_INTERNATIONAL, SMPP::NPI_E164);
 
         $this->openSmppConnection();
-        $messageId = $this->smpp->sendSMS($from, $to, $message);
+        if ($returnStatus)
+        {
+            $this->smpp->setReturnStatus(true);
+        }
+        $response = $this->smpp->sendSMS($from, $to, $message);
         $this->closeSmppConnection();
 
-        return $messageId;
+        return $response;
     }
 
     private function openSmppConnection()
@@ -66,6 +86,8 @@ class SmppTransmitter
         $this->transport->setSendTimeout($this->transportParamters[2]);
 
         $this->smpp = new SmppClient($this->transport);
+
+        $this->smpp->smsNullTerminateOctetStrings = $this->nullTerminate;
 
         $this->transport->debug = $this->debug['transport'];
         $this->smpp->debug = $this->debug['smpp'];

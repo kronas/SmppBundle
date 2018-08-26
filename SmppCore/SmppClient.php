@@ -49,12 +49,15 @@ class SmppClient
     public static $smsReplaceIfPresentFlag = 0x00;
     public static $smsSmDefaultMsgId = 0x00;
 
+    /** @var bool $returnStatus If true return the status, otherwise just return the ID */
+    protected $returnStatus = false;
+
     /**
      * SMPP v3.4 says octect string are "not necessarily NULL terminated".
      * Switch to toggle this feature
      * @var boolean
      */
-    public static $smsNullTerminateOctetStrings = true;
+    public $smsNullTerminateOctetStrings = true;
 
     /**
      * Use sarMsgRefNum and sar_total_segments with 16 bit tags
@@ -392,7 +395,7 @@ class SmppClient
         // Figure out if we need to do CSMS, since it will affect our PDU
         if ($msgLength > $singleSmsOctetLimit) {
             $doCsms = true;
-            if (!self::$csmsMethod != SmppClient::CSMS_PAYLOAD) {
+            if (self::$csmsMethod != SmppClient::CSMS_PAYLOAD) {
                 $parts = $this->splitMessageString($message, $csmsSplit, $dataCoding);
                 $shortMessage = reset($parts);
                 $csmsReference = $this->getCsmsReference();
@@ -496,7 +499,7 @@ class SmppClient
         }
 
         // Construct PDU with mandatory fields
-        $pdu = pack('a1cca'.(strlen($source->value)+1).'cca'.(strlen($destination->value)+1).'ccc'.($scheduleDeliveryTime ? 'a16x' : 'a1').($validityPeriod ? 'a16x' : 'a1').'ccccca'.(strlen($shortMessage)+(self::$smsNullTerminateOctetStrings ? 1 : 0)),
+        $pdu = pack('a1cca'.(strlen($source->value)+1).'cca'.(strlen($destination->value)+1).'ccc'.($scheduleDeliveryTime ? 'a16x' : 'a1').($validityPeriod ? 'a16x' : 'a1').'ccccca'.(strlen($shortMessage)+($this->smsNullTerminateOctetStrings ? 1 : 0)),
             self::$smsServiceType,
             $source->ton,
             $source->npi,
@@ -527,6 +530,11 @@ class SmppClient
 
         $response = $this->sendCommand(SMPP::SUBMIT_SM, $pdu);
         $body = unpack("a*msgid", $response->body);
+
+        if ($this->getReturnStatus())
+        {
+            return $response->status;
+        }
 
         return $body['msgid'];
     }
@@ -991,5 +999,28 @@ class SmppClient
         }
 
         return $tag;
+    }
+
+    /**
+     * Get the return status, if true a status code will be returned, otherwise a message ID will be returned
+     *
+     * @return bool
+     */
+    public function getReturnStatus()
+    {
+        return $this->returnStatus;
+    }
+
+    /**
+     * Set the return status option, set to true for a status code or false for a message id
+     *
+     * @param bool $returnStatus
+     *
+     * @return SmppClient
+     */
+    public function setReturnStatus($returnStatus)
+    {
+        $this->returnStatus = $returnStatus;
+        return $this;
     }
 }
